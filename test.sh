@@ -1,5 +1,7 @@
 #!/bin/bash
 
+## Testing some stuff by putting comments here
+
 ## Initialise
 if [ ! -e data.db ];
 then
