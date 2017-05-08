@@ -1,20 +1,16 @@
 #!/bin/bash
 
-email="youremail@email.com"
-domain="yourdomain.com"
+influxdb="http://myurlgoeshere:8086"
+
+testdb="network"
+table="speedtest"
+
+influxdb_url=${influxdb}"/write?db="${testdb}"&precision=s"
 
 ## Initialise
 
 #command -v dig >/dev/null 2>&1 || { echo >&2 "[ERROR]: I require dig but it's not installed.  Aborting."; exit 1; }
-command -v sqlite3 >/dev/null 2>&1 || { echo >&2 "[ERROR]: I require sqlite3 but it's not installed.  Aborting."; exit 1; }
-
-if [ ! -e data.db ];
-then
-	echo "[INFO]: Initialising database"
-	create="create table test (ID integer primary key, TestTime text, Home text, Server text, Download real, Upload real);"
-	sqlite3 data.db "${create}"
-fi
-
+command -v curl >/dev/null 2>&1 || { echo >&2 "[ERROR]: I require curl but it's not installed.  Aborting."; exit 1; }
 
 ## Run Test
 
@@ -32,8 +28,7 @@ then
 fi
 
 echo "[INFO]: Running speed test (this could take a few minutes)"
-datetime=$(date +"%Y-%m-%d %T")
-#myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
+datetime=$(date -u +%s)
 ./speedtest > output.txt
 download=`grep Download output.txt |cut -d ':' -f 2|cut -d ' ' -f 2`
 upload=`grep Upload output.txt|cut -d ':' -f 2|cut -d ' ' -f 2`
@@ -41,8 +36,12 @@ source=`grep 'Testing from' output.txt |cut -d '(' -f2|cut -d ')' -f1`
 destination=`grep 'Hosted by' output.txt`
 
 echo "[INFO]: Inserting data into logging database"
-insert="insert into test (TestTime, Home, Server, Download, Upload) values ('${datetime}', '${source}', '${destination/Hosted by /}', '${download}', '${upload}')"
-sqlite3 data.db "${insert}"
+payload="${table},home=${source},destination=${destination//\ /_} upload=${upload},download=${download} ${datetime}"
+#echo	${payload}
+#echo	${influxdb_url}
+
+curl  -X POST ${influxdb_url} --data-binary "$payload"
+
 
 if [ -e output.txt ];
 then
@@ -50,17 +49,6 @@ then
 	rm output.txt
 fi
 
-## Perform comparison
-
-query="select count(distinct Home) from test where TestTime in (select TestTime from test order by TestTime desc limit 0,2);"
-difftest=$(sqlite3 data.db "${query}")
-
-if [ $difftest -ne 1 ];
-then
-        msg="[WARNING]: IP Address has changed since last run.  New IP is ${source}"
-        echo $msg
-        mail -s "[${domain}]: IP Address Update" $email <<< $msg
-fi
 
 
 
